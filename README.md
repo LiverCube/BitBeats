@@ -26,7 +26,8 @@ To start BitBeats via the command prompt 'CMD', you should first ensure that the
 
 Documentation of all commands and sample code can be found in design.txt.
 
-#License: Copyright (C) 2024 Hannes PESCOLLER, Eugen-Maximilian STANGL
+#License:
+Copyright (C) 2024 Hannes PESCOLLER, Eugen-Maximilian STANGL
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
