@@ -24,7 +24,7 @@ To start BitBeats via the command prompt 'CMD', you should first ensure that the
 
 #Documentation:
 
-Documentation of all commands and sample code can be found in design.txt.
+Documentation of all commands and sample code can be found in design.pdf.
 
 #License:
 Copyright (C) 2024 Hannes PESCOLLER, Eugen-Maximilian STANGL
