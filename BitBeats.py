@@ -31,20 +31,10 @@ class BitBeats(cmd.Cmd):
     def do_run_script(self, script_file):
         """Runs commands from a script file"""
         try:
+            self.do_stop()
             with open(script_file) as f:
                 for line in f.readlines():
-                    clean_line = line.strip()
-                    # Check if the line is a comment or empty
-                    if clean_line.startswith("#"):
-                        continue  # Skip comments and empty lines
-                    # Check if the line defines a variable
-                    if '=' in clean_line:
-                        self.onecmd_define_variable(clean_line)
-                    else:
-                        # Replace variables in the line with their values
-                        for variable_name, value in self.variables.items():
-                            clean_line = clean_line.replace(variable_name, value)
-                        self.onecmd(clean_line)
+                    self.onecmd(self.precmd(line.strip()))
         except FileNotFoundError:
             print(f"ERROR: Script file '{script_file}' not found")
             self.do_stop()
@@ -70,6 +60,18 @@ class BitBeats(cmd.Cmd):
         except ValueError as e:
             print(f"ERROR: {e}")
 
+
+    def precmd(self, line):
+        if line.startswith("#"):
+            return ""  # Skip comments and empty lines
+        if "=" in line:
+            variable, value = line.split("=")
+            variable = variable.strip()
+            value = value.strip()
+            self.variables[variable] = value
+            return ""
+        return line
+
     def _send(self, path, value):
         try:
             OSC.sendMsg(path, value, "localhost", 9999)
@@ -91,15 +93,15 @@ class BitBeats(cmd.Cmd):
     def do_stop(self, args=None):
         """Stops sequencer"""           
         try:
-            self._send("/master_vol", 0)
+            self._send("/master_vol", 0.0)
             intervals = '0 0 0 0 0 0 0 0 0 0 0 0'       
-            self._send("/noise", {"values": [intervals, 0, 0, 0, 0, 0, 0, 0]})
-            self._send("/triangle", {"values": [intervals, 0, 0, 0, 0]})
-            self._send("/square1", {"values": [intervals, 0, 0, 0, 0]})
-            self._send("/square2", {"values": [intervals, 0, 0, 0, 0]})
-            self._send("/triangle", {"values": [0,intervals]})
-            self._send("/square1", {"values": [0, intervals]})
-            self._send("/square2", {"values": [0, intervals]})
+            self._send("/noise", {"values": [0.0, intervals, "0", 0.0, 0.0, 0.0, 0.0, 0.0]})
+            self._send("/triangle", {"values": [0.0, intervals, 0.0, 0.0, 0.0]})
+            self._send("/square1", {"values": [0.0, intervals, 0.0, 0.0, 0.0]})
+            self._send("/square2", {"values": [0.0, intervals, 0.0, 0.0, 0.0]})
+            self._send("/triangle", {"values_eff": [0.0, intervals]})
+            self._send("/square1", {"values_eff": [0.0, intervals]})
+            self._send("/square2", {"values_eff": [0.0, intervals]})
             self._send("/stop", 0)
         except Exception as e:
             print(f"ERROR: {_format_exception_message(e)}, program is terminated")
@@ -141,6 +143,10 @@ class BitBeats(cmd.Cmd):
             print("ERROR: master volume should be a number")
 
     def play_bar(self, args):
+        if not args:
+            print("ERROR: No arguments provided for play command.")
+            return
+        
         try:
             parts = args.split()
             if parts[0] == 'noise':
@@ -148,7 +154,7 @@ class BitBeats(cmd.Cmd):
                 self.vol = float(vol)
                 self.cut_off = float(cut_off)                     
                 channel = "noise"
-                self.A, self.D, self.S, self.R = map(int, [A, D, S, R])
+                self.A, self.D, self.S, self.R = map(float, [A, D, S, R])
 
                 if channel.lower() in self.channels:
                     self.current_channel = self.channels[channel.lower()]
@@ -170,15 +176,15 @@ class BitBeats(cmd.Cmd):
                     print("ERROR: volume must be in the range of 0 to 1.")
                     return
 
-                if not (0 <= self.A <= 1000) or not (0 <= self.D <= 1000) or not (0 <= self.S <= 1000) or not (0 <= self.R <= 1000):
+                if not (0 <= self.A <= 5000) or not (0 <= self.D <= 5000) or not (0 <= self.S <= 5000) or not (0 <= self.R <= 5000):
                     print("ERROR: A, D, S, R must be in the range of 0 to 1000.")
                     return
 
-            if parts[0] == 'triangle' or parts[0] == 'square1' or parts[0] == 'square2':
+            elif parts[0] == 'triangle' or parts[0] == 'square1' or parts[0] == 'square2':
                 channel, vol, binary_pattern, note, length, duty_cycle = parts
 
                 self.duty_cycle = float(duty_cycle)
-                self.length = int(length)
+                self.length = float(length)
                 self.vol = float(vol)
 
                 if channel.lower() in self.channels:
@@ -187,9 +193,10 @@ class BitBeats(cmd.Cmd):
                     print(f"ERROR: Invalid oscillator name: {channel}. Available options are {', '.join(self.channels.keys())}.") 
                     return
 
-                if not (0 <= self.duty_cycle <= 1):
-                    print("ERROR: Duty cycle must be in the range of 0 to 1.")
-                    return
+                if channel in ["square1", "square2"]:
+                    if not (0 <= self.duty_cycle <= 1):
+                        print("ERROR: Duty cycle must be in the range of 0 to 1.")
+                        return
 
                 if not (1 <= self.length <= 4):
                     print("ERROR: Length must be in the range of 1 to 4.")
@@ -198,15 +205,17 @@ class BitBeats(cmd.Cmd):
                 if not (0 <= self.vol <= 1):
                     print("ERROR: Volume must be in the range of 0 to 1.")
                     return
-
+                
                 if "triangle" in self.current_channel:
                     if self.duty_cycle != 0:
-                        print("ERROR: Duty cycle is not applicable to the 'triangle' oscillator and should be 0.")
-                        self.duty_cycle = 0
+                        self.duty_cycle = 0.0                                                
 
                 # Convert note to MIDI note value
                 self.midi_note = note_to_midi(note)
-                self.duty_cycle = (self.duty_cycle-0.5)*2
+                #self.duty_cycle = (self.duty_cycle-0.5)*2
+            else:
+                print("ERROR: Invalid channel specified.")
+                return
             binary_list = [int(bit) for bit in binary_pattern]
             if len(binary_list) > 8:
                 print("ERROR: Binary pattern should have at most 8 bits.")
@@ -224,17 +233,17 @@ class BitBeats(cmd.Cmd):
 
             if self.current_channel == "/noise":   
                 if self.current_channel in self.oscillators:
-                    self._send(self.current_channel, {"values": [self.binary_string, self.vol, self.filter_string, self.cut_off, self.A, self.D, self.S, self.R]})
+                    self._send(self.current_channel, {"values": [self.vol, self.binary_string, self.filter_string, self.cut_off, self.A, self.D, self.S, self.R]})
                 else:
                     self.oscillators.append(self.current_channel)
-                    self._send(self.current_channel, {"values": [self.binary_string, self.vol, self.filter_string, self.cut_off, self.A, self.D, self.S, self.R]})
+                    self._send(self.current_channel, {"values": [self.vol, self.binary_string, self.filter_string, self.cut_off, self.A, self.D, self.S, self.R]})
             else:    
                 if self.current_channel in self.oscillators:
-                    self._send(self.current_channel, {"values": [self.binary_string, self.vol, self.midi_note, self.duty_cycle, self.length]})
+                    self._send(self.current_channel, {"values": [self.vol, self.binary_string, self.midi_note, self.length, self.duty_cycle]})
                 else:
                     self.oscillators.append(self.current_channel)
-                    self._send(self.current_channel, {"values": [self.binary_string, self.vol, self.midi_note, self.duty_cycle, self.length]})
-
+                    self._send(self.current_channel, {"values": [self.vol, self.binary_string, self.midi_note, self.length, self.duty_cycle]})
+            
         except ValueError as e:
             print(f"ERROR: {e}")
 
@@ -252,7 +261,7 @@ class BitBeats(cmd.Cmd):
             S: Sustain in ms
             R: Release in ms
 
-            Example: noise 1 10101011 hp 3000 10 50 3 50
+            Example: play noise 1 10101011 hp 3000 10 50 3 50
 
         For square1, square2, or triangle:
             vol: Volume from 0 to 1
@@ -261,12 +270,14 @@ class BitBeats(cmd.Cmd):
             length: Length in 8th from 1 to 4
             duty_cycle: Duty cycle from 0 to 1
 
-            Example: square1 0.7 01010101 e3 1 0.2
+            Example: play square1 0.7 01010101 e3 1 0.2
         """
-
         channels_to_play = args.split(',')
         for channel in channels_to_play:
-            self.play_bar(channel)
+            if channel in self.variables:
+                self.play_bar(self.variables[channel])
+            else:
+                self.play_bar(channel)       
 
     def do_wait(self, args):
         """
@@ -291,15 +302,16 @@ class BitBeats(cmd.Cmd):
                 parts = channel.split()
                 intervals = '0 0 0 0 0 0 0 0 0 0 0 0' 
                 if parts[0] == 'noise':
-                    self._send("/noise", {"values": [intervals, 0, 0, 0, 0, 0, 0, 0]})
+                    self._send("/noise", {"values": [0.0, intervals, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]})
                 elif parts[0] == 'triangle':
-                    self._send("/triangle", {"values": [intervals, 0, 0, 0, 0]})
+                    self._send("/triangle", {"values": [0.0, intervals, 0.0, 0.0, 0.0]})
                 elif parts[0] == 'square1':
-                    self._send("/square1", {"values": [intervals, 0, 0, 0, 0]})
+                    self._send("/square1", {"values": [0.0, intervals, 0.0, 0.0, 0.0]})
                 elif parts[0] == 'square2':
-                    self._send("/square2", {"values": [intervals, 0, 0, 0, 0]})
+                    self._send("/square2", {"values": [0.0, intervals, 0.0, 0.0, 0.0]})
         except ValueError as e:
             print(f"ERROR: {e}")
+            
 
     def do_set_effect(self, args):
         """
@@ -315,7 +327,7 @@ class BitBeats(cmd.Cmd):
             parts = args.split()
             if len(parts) == 3:
                 channel, cycle_steps, intervals = parts
-                cycle_steps = int(cycle_steps)
+                cycle_steps = float(cycle_steps)
                 intervals = str(intervals)
             else:
                 print("ERROR: Invalid number of arguments for 'set_effect' command.")
@@ -345,7 +357,7 @@ class BitBeats(cmd.Cmd):
                 else:
                     print("ERROR: Semitones should be integers.")
                     return
-                self._send(self.current_channel, {"values": [cycle_steps, semitones]})
+                self._send(self.current_channel, {"values_eff": [cycle_steps, semitones]})
         except ValueError as e:
             print(f"ERROR: {e}")
 
@@ -362,11 +374,13 @@ class BitBeats(cmd.Cmd):
             else:
                 print(f"ERROR: Invalid oscillator name: {channel}. Available options are {', '.join(self.channels.keys())}.")
                 return
-            cycle_steps = 0
+            cycle_steps = 0.0
             intervals = '0 0 0 0 0 0 0 0 0 0 0 0'
-            self._send(self.current_channel, {"values": [cycle_steps, intervals]})
+            self._send(self.current_channel, {"values_eff": [cycle_steps, intervals]})
         except ValueError as e:
             print(f"ERROR: {e}")
+            self.do_stop()
+
 
 def note_to_midi(note):
     """Converts note to midi value"""
